@@ -1,0 +1,8 @@
+{
+  "name": "fr-builder",
+  "version": "0.0.1",
+  "main": "builder.js",
+  "dependencies": {
+    "restify": "^2.8.3"
+  }
+}
