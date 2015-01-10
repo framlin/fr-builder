@@ -244,6 +244,10 @@ function Builder(localPartials) {
         coClient.get('/co/'+site+'/article/'+articlePath, this.page(router));
     };
 
+    this.coAudio = function coAudio(router, site, audioPath) {
+        coClient.get('/co/'+site+'/audio/'+audioPath, this.createCIHandler(router, 'audio/ogg'));
+    };
+
     this.ciStyle = function ciStyle(router, site, stylePath) {
         ciClient.get('/ci/'+site+'/style/'+stylePath, this.createCIHandler(router, 'text/css', 'utf8'));
     };
