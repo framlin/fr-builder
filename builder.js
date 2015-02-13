@@ -1,9 +1,12 @@
 var restify = require('restify'),
+    es = require('event-stream'),
+
     cvConfig = require('fr-infra').ServerConfig.cvservice,
     ciConfig = require('fr-infra').ServerConfig.ciservice,
     coConfig = require('fr-infra').ServerConfig.coservice,
 
     fs = require('fs'),
+
 
     cvClient = restify.createClient({
         url:'http://' + cvConfig.ip + ':' + cvConfig.port
@@ -16,166 +19,36 @@ var restify = require('restify'),
     });
 
 
-function Builder(localPartials) {
+function Builder(localPartialIndex) {
     var me = this,
         partial;
 
+    this.localPartialIndex = localPartialIndex;
+    this.topPartials = [
+        '/ci/not-used-for-partials/partial/top',
+        '/ci/not-used-for-partials/partial/heading',
+        '/ci/not-used-for-partials/partial/maintop',
+        '/ci/not-used-for-partials/partial/topnav'
+    ];
+    this.bottomPartials = [
+        '/ci/not-used-for-partials/partial/bottomnav',
+        '/ci/not-used-for-partials/partial/metanav',
+        '/ci/not-used-for-partials/partial/mainbottom',
+        '/ci/not-used-for-partials/partial/bottom'
+    ];
 
     this.sitename = 'company';
 
-    this.partialIndex = {
-        'top' : "",
-        'heading' : "",
-        'topnav' : "",
-        'maintop' : "",
-        'bottomnav': "",
-        'metanav': "",
-        'mainbottom': "",
-        'bottom' : ""
-    };
 
-    //overwrite framlin base CI
-    for (partial in localPartials) {
-        this.partialIndex[partial] = localPartials[partial];
-    }
-
-    this.articleIndex = {};
-
+    //TODO rename it to setSitename - without next -
     this.loadContent = function loadContent(sitename, next) {
         me.sitename = sitename;
-        me.loadPartials(function cbPartialsLoaded(){
-            me.loadArticles(next);
-        });
-    };
-
-    this.loadArticles = function loadArticles(next) {
-        var articleCount = 0,
-            article;
-
-        function finalize() {
-            articleCount -= 1;
-            if (articleCount === 0) {
-                next();
-            }
-        }
-
-        function createArticleGetter(idx, key) {
-            return function(err, res) {
-                //assert.ifError(err); // HTTP status code >= 400
-                var val = '';
-                res.setEncoding('utf8');
-                res.on('data', function(chunk) {
-                    val += chunk;
-                });
-
-                res.on('end', function() {
-                    idx[key] = val;
-                    finalize();
-                });
-            };
-        }
-
-        function createIndexGetter(idx, key) {
-            return function(err, res) {
-                //assert.ifError(err); // HTTP status code >= 400
-                var val = '';
-                res.setEncoding('utf8');
-                res.on('data', function(chunk) {
-                    val += chunk;
-                });
-
-                res.on('end', function() {
-                    idx[key] = val;
-                    finalize();
-                });
-
-            };
-        }
-
-        function crateCOGetter(article) {
-            return function cbCOHandling(err, req) {
-                req.on('result', createArticleGetter(me.articleIndex, article));
-            };
-        }
-
-        function crateCOIndexGetter(article) {
-            return function cbCOHandling(err, req) {
-                req.on('result', createIndexGetter(me.articleIndex, article));
-            };
-        }
-
-        function coIndexHandler(err, req) {
-            var articleIndex = {},
-                article;
-
-            req.on('result', function cbIndexResult(err, res){
-
-                var val = '';
-                res.on('data', function(chunk) {
-                    val += chunk;
-                });
-
-                res.on('end', function() {
-                    articleIndex = JSON.parse(val);
-
-                    for (article in articleIndex) {
-                        articleCount += 1;
-                        coClient.get(articleIndex[article], crateCOIndexGetter(article));
-                    }
-                });
-            });
-        }
-
-        coClient.get('/co/'+me.sitename+'/index/article', coIndexHandler);
+        next();
     };
 
 
-
-
-    this.loadPartials = function loadPartials(next) {
-        var partialCount = 0,
-            partial;
-
-        function finalize() {
-            partialCount -= 1;
-            if (partialCount === 0) {
-                next();
-            }
-        }
-
-        function createPartialGetter(partialIndex, key) {
-            return function(err, res) {
-                //assert.ifError(err); // HTTP status code >= 400
-                var val = '';
-                res.setEncoding('utf8');
-                res.on('data', function(chunk) {
-                    val += chunk;
-                });
-
-                res.on('end', function() {
-                    partialIndex[key] = val;
-                    finalize();
-                });
-            };
-        }
-
-        function crateCIGetter(partial) {
-            return function cbCIHandling(err, req) {
-                req.on('result', createPartialGetter(me.partialIndex, partial));
-            };
-        }
-
-        for (partial in this.partialIndex) {
-            if (this.partialIndex[partial] === "") {
-                partialCount += 1;
-                ciClient.get('/ci/'+me.sitename+'/partial/'+partial, crateCIGetter(partial));
-            }
-        }
-
-    };
-
-    this.createCIHandler = function createCIHandler(router, mimeType, encoding) {
-        return function cbCIHandling(err, req) {
+    this.connectTo = function connectTo(router, mimeType, encoding) {
+        return function cbConnector(err, req) {
             req.on('result', function(err, res) {
                 //assert.ifError(err); // HTTP status code >= 400
 
@@ -187,13 +60,7 @@ function Builder(localPartials) {
                     if (encoding) {
                         res.setEncoding(encoding);
                     }
-                    res.on('data', function(chunk) {
-                        router.res.write(chunk);
-                    });
-
-                    res.on('end', function() {
-                        router.res.end();
-                    });
+                    res.pipe(router.res);
                 } else {
                     console.log(err);
                 }
@@ -201,87 +68,64 @@ function Builder(localPartials) {
 
         };
 
-    }
-
-
-    this.page = function  page(router)  {
-        return function serviceRequest(err, req ) {
-            req.on('result', function(err, res) {
-                //assert.ifError(err); // HTTP status code >= 400
-
-                router.res.writeHead(200, {
-                    'Content-Type': 'text/html'
-                });
-                router.res.write(me.partialIndex.top);
-                router.res.write(me.partialIndex.heading);
-                router.res.write(me.partialIndex.maintop);
-                router.res.write(me.partialIndex.topnav);
-                res.setEncoding('utf8');
-                res.on('data', function(chunk) {
-                    router.res.write(chunk);
-                });
-
-                res.on('end', function() {
-                    router.res.write(me.partialIndex.bottomnav);
-                    router.res.write(me.partialIndex.metanav);
-                    router.res.write(me.partialIndex.mainbottom);
-                    router.res.write(me.partialIndex.bottom);
-                    router.res.end();
-                });
-            });
-        };
     };
 
-    this.cv = function cv(router) {
-        cvClient.get('/cv/list', this.page(router));
+    this.embedd = function embedd(router, partialUrls) {
+
+        if (typeof partialUrls === 'string'){
+            partialUrls = [partialUrls];
+        }
+
+        var partials = this.topPartials.concat(partialUrls).concat(this.bottomPartials);
+
+
+        fetchPartials(this.localPartialIndex, partials, router);
+
     };
 
-    this.cvEntry = function cvEntry(router, cvid) {
-        cvClient.get('/cv/'+ cvid, this.page(router));
-    };
-
-    this.coArticle = function coArticle(router, site, articlePath) {
-        coClient.get('/co/'+site+'/article/'+articlePath, this.page(router));
-    };
 
     this.coAudio = function coAudio(router, site, audioPath) {
-        coClient.get('/co/'+site+'/audio/'+audioPath, this.createCIHandler(router, 'audio/ogg'));
+        coClient.get('/co/'+site+'/audio/'+audioPath, this.connectTo(router, 'audio/ogg'));
     };
 
     this.ciStyle = function ciStyle(router, site, stylePath) {
-        ciClient.get('/ci/'+site+'/style/'+stylePath, this.createCIHandler(router, 'text/css', 'utf8'));
+        ciClient.get('/ci/'+site+'/style/'+stylePath, this.connectTo(router, 'text/css', 'utf8'));
     };
 
     this.ciPartial = function ciPartial(router, partialPath) {
-        ciClient.get('/ci/'+me.sitename+'/partial/'+partialPath, this.createCIHandler(router, 'text/html', 'utf8'));
+        ciClient.get('/ci/not-used-for-partials/partial/'+partialPath, this.connectTo(router, 'text/html', 'utf8'));
     };
 
     this.ciImage = function ciImage(router, imagePath) {
-        ciClient.get('/ci/'+me.sitename+'/image/'+imagePath, this.createCIHandler(router, 'image/png'));
+        ciClient.get('/ci/'+me.sitename+'/image/'+imagePath, this.connectTo(router, 'image/png'));
     };
 
     this.ciFont = function ciFont(router, fontPath) {
-        ciClient.get('/ci/font/'+fontPath, this.createCIHandler(router, 'application/x-font-opentype'));
+        ciClient.get('/ci/font/'+fontPath, this.connectTo(router, 'application/x-font-opentype'));
     };
+
+
+
+    this.cv = function cv(router) {
+        this.embedd(router, '/cv/list');
+    };
+
+    this.cvEntry = function cvEntry(router, cvid) {
+        this.embedd(router, '/cv/'+ cvid);
+    };
+
+    this.coArticle = function coArticle(router, site, articlePath) {
+        this.embedd(router, '/co/'+site+'/article/'+articlePath);
+    };
+
+
+
 
     /**
      * @callback: 'this' is the calling router
      */
     this.home = function home() {
-        var router = this;
-        router.res.writeHead(200, {
-            'Content-Type': 'text/html'
-        });
-        router.res.write(me.partialIndex.top);
-        router.res.write(me.partialIndex.heading);
-        router.res.write(me.partialIndex.maintop);
-        router.res.write(me.partialIndex.topnav);
-        router.res.write(me.articleIndex.home);
-        router.res.write(me.partialIndex.bottomnav);
-        router.res.write(me.partialIndex.metanav);
-        router.res.write(me.partialIndex.mainbottom);
-        router.res.write(me.partialIndex.bottom);
-        router.res.end();
+        me.embedd(this, '/co/'+me.sitename+'/article/home');
     };
 
 
@@ -289,61 +133,154 @@ function Builder(localPartials) {
      * @callback: 'this' is the calling router
      */
     this.impressum = function impressum() {
-        var router = this;
-        router.res.writeHead(200, {
-            'Content-Type': 'text/html'
-        });
-        router.res.write(me.partialIndex.top);
-        router.res.write(me.partialIndex.heading);
-        router.res.write(me.partialIndex.maintop);
-        router.res.write(me.partialIndex.topnav);
-        router.res.write(me.articleIndex.impressum);
-        router.res.write(me.partialIndex.bottomnav);
-        router.res.write(me.partialIndex.metanav);
-        router.res.write(me.partialIndex.mainbottom);
-        router.res.write(me.partialIndex.bottom);
-        router.res.end();
+        me.embedd(this, '/co/company/article/impressum');
     };
 
     /**
      * @callback: 'this' is the calling router
      */
     this.disclaimer = function disclaimer() {
-        var router = this;
-        router.res.writeHead(200, {
-            'Content-Type': 'text/html'
-        });
-        router.res.write(me.partialIndex.top);
-        router.res.write(me.partialIndex.heading);
-        router.res.write(me.partialIndex.maintop);
-        router.res.write(me.partialIndex.topnav);
-        router.res.write(me.articleIndex.disclaimer);
-        router.res.write(me.partialIndex.bottomnav);
-        router.res.write(me.partialIndex.metanav);
-        router.res.write(me.partialIndex.mainbottom);
-        router.res.write(me.partialIndex.bottom);
-        router.res.end();
+        me.embedd(this, '/co/company/article/disclaimer');
     };
     /**
      * @callback: 'this' is the calling router
      */
     this.about = function about() {
-        var router = this;
-        router.res.writeHead(200, {
-            'Content-Type': 'text/html'
-        });
-        router.res.write(me.partialIndex.top);
-        router.res.write(me.partialIndex.heading);
-        router.res.write(me.partialIndex.maintop);
-        router.res.write(me.partialIndex.topnav);
-        router.res.write(me.articleIndex.about);
-        router.res.write(me.partialIndex.bottomnav);
-        router.res.write(me.partialIndex.metanav);
-        router.res.write(me.partialIndex.mainbottom);
-        router.res.write(me.partialIndex.bottom);
-        router.res.end();
+        me.embedd(this, '/co/company/article/about');
     };
 }
+
+
+function createHandle(localPartials, url) {
+    var sections = url.split('/'),
+        service = sections[1],
+        resourceName = sections[sections.length -1],
+        result = {
+            client: null, 
+            url: url,
+            readable:null
+        };
+
+    if (localPartials && (resourceName in localPartials)) {
+        result.readable = fs.createReadStream(localPartials[resourceName]);
+    } else {
+        switch (service) {
+            case 'ci':
+                result.client = ciClient;
+                break;
+            case 'co':
+                result.client = coClient;
+                break;
+            case 'cv':
+                result.client = cvClient;
+                break;
+        }
+    }
+
+    return result;
+}
+
+function fetchPartials(localPartials, partials, router) {
+    var readables = [];
+    //initialize ALL readables with null, so that we later can check,
+    //that all readables ars set and we can start to read them
+    //one after another ("synchronized serial")
+    partials.forEach(function cbMapPartials(val, idx, arr) {
+        readables.push(null);
+    });
+
+    router.res.writeHead(200, {
+        'Content-Type': 'text/html'
+    });
+
+    //now start to set the readables
+    partials.forEach(function cbMapPartials(val, idx, arr) {
+        var handle = createHandle(localPartials, val);
+
+        if (handle.client) {
+            fetch(handle.url, idx, readables, router, handle.client);
+        } else {
+            setReadable(readables, idx, handle.readable, router);
+        }
+    });
+
+}
+
+function readFrom(readables, idx, router) {
+    var through = es.through(write, end);
+
+    function write(data) {
+        router.res.write(data);
+    }
+
+    function end() { //optional
+        if (idx < (readables.length - 1)) {
+            readFrom(readables, idx + 1, router);
+        } else {
+            router.res.end();
+        }
+    }
+
+    readables[idx].pipe(through);
+}
+
+/**
+ *
+ * @param readables
+ *          has to be an array, that is initially contains only NULL-values,
+ *          that will be replayed by this method with readables.
+ *          If all NULLs are replaced, (recursive) reading from the readables will be started
+ *          with the 0-th readable
+ * @param idx
+ *          index of the readable within the readables-array
+ * @param res
+ *          the readable
+ * @param router
+ *          the writable
+ */
+function setReadable(readables, idx, res, router) {
+    var full = true;
+    readables[idx] = res;
+    readables.forEach(function cbMap(val, idx, arr) {
+        if (val === null) {
+            full = false;
+            return false;
+        }
+        return true;
+    });
+    if (full) {
+        readFrom(readables, 0, router);
+    }
+}
+
+function fetch(partial, idx, readables, router, client) {
+    client.get(partial, function cbPump(err, req) {
+        req.on('result', function cbFetched(err, res) {
+            setReadable(readables, idx, res, router);
+        });
+    });
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 const PARTIALS_POSTFIX = '.html';
@@ -390,6 +327,29 @@ function loadAllPartials(path) {
     return result;
 }
 
+function listAllPartials(path) {
+    var partials = walk(path),
+        i,
+        partial,
+        key,
+        pathEnd,
+        postfixStart,
+        postfix,
+        result = {};
+
+    for (i = 0; i< partials.length; i += 1) {
+        partial = partials[i];
+        postfixStart = partial.lastIndexOf('.');
+        postfix = partial.substring(postfixStart + 1);
+        if (postfix === 'html') {
+            pathEnd = partial.lastIndexOf('/');
+            key = partial.substring(pathEnd +1, postfixStart);
+            result[key] = partial;
+        }
+    }
+    return result;
+}
+
 function loadAllArticle(path) {
     var articles = walk(path),
         i,
@@ -411,6 +371,7 @@ function loadAllArticle(path) {
 
 Builder.loadPartial = load;
 Builder.loadAllPartials = loadAllPartials;
+Builder.listAllPartials = listAllPartials;
 Builder.loadAllArticle = loadAllArticle;
 
 module.exports = Builder;

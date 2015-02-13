@@ -3,6 +3,8 @@
   "version": "0.0.1",
   "main": "builder.js",
   "dependencies": {
+    "concat-stream": "^1.4.7",
+    "event-stream": "^3.2.2",
     "restify": "^2.8.3"
   }
 }
