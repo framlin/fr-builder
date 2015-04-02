@@ -100,6 +100,10 @@ function Builder(localPartialIndex) {
         ciClient.get('/ci/'+me.sitename+'/image/'+imagePath, this.connectTo(router, 'image/png'));
     };
 
+    this.coImage = function coImage(router, site, imagePath) {
+        coClient.get('/co/'+site+'/images/'+imagePath, this.connectTo(router, 'image/png'));
+    };
+
     this.ciFont = function ciFont(router, fontPath) {
         ciClient.get('/ci/font/'+fontPath, this.connectTo(router, 'application/x-font-opentype'));
     };
@@ -117,6 +121,7 @@ function Builder(localPartialIndex) {
     this.coArticle = function coArticle(router, site, articlePath) {
         this.embedd(router, '/co/'+site+'/article/'+articlePath);
     };
+
 
 
 
