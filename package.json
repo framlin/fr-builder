@@ -5,6 +5,6 @@
   "dependencies": {
     "concat-stream": "^1.4.7",
     "event-stream": "^3.2.2",
-    "restify": "^2.8.3"
+    "restify-clients": "^1.5.2"
   }
 }

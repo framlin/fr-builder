@@ -1,4 +1,4 @@
-var restify = require('restify'),
+var restify = require('restify-clients'),
     es = require('event-stream'),
 
     cvConfig = require('fr-infra').ServerConfig.cvservice,
@@ -8,13 +8,13 @@ var restify = require('restify'),
     fs = require('fs'),
 
 
-    cvClient = restify.createClient({
+    cvClient = restify.createHttpClient({
         url:'http://' + cvConfig.ip + ':' + cvConfig.port
     }),
-    ciClient = restify.createClient({
+    ciClient = restify.createHttpClient({
         url:'http://' + ciConfig.ip + ':' + ciConfig.port
     }),
-    coClient = restify.createClient({
+    coClient = restify.createHttpClient({
         url:'http://' + coConfig.ip + ':' + coConfig.port
     });
 
